@@ -12,7 +12,7 @@ func TestBuildImageOption(t *testing.T) {
 		url  string
 		want *ImageOption
 	}{
-		{"s32", "https://example.com/=s32", &ImageOption{Size: 32}},
+		{"s32", "/hoge/fuga/=s32", &ImageOption{Bucket: "hoge", Object: "fuga", Size: 32}},
 	}
 
 	for _, tt := range cases {
@@ -35,7 +35,7 @@ func TestBuildImageOptionError(t *testing.T) {
 		url  string
 		want error
 	}{
-		{"not found", "https://example.com/", ErrNotFound},
+		{"not found", "/", ErrNotFound},
 	}
 
 	for _, tt := range cases {
