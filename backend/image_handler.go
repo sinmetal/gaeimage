@@ -53,9 +53,9 @@ func ImageHandler(w http.ResponseWriter, r *http.Request) {
 		img = goma.ResizeToFitLongSide(img, o.Size)
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("cache-control", "public, max-age=3600")
 	w.Header().Set("content-type", gt.ContentType)
+	w.WriteHeader(http.StatusOK)
 	if err := goma.Write(w, img, gt.FormatType); err != nil {
 		fmt.Printf("failed goma.Write to response. err=%+v\n", err)
 	}
