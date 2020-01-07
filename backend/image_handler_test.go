@@ -8,7 +8,7 @@ import (
 )
 
 func TestImageHandler(t *testing.T) {
-	r := httptest.NewRequest("GET", "https://example.com/sinmetal/shingo_nouhau.png/=s32", nil)
+	r := httptest.NewRequest("GET", "https://example.com/v1/sinmetal/shingo_nouhau.png/=s32", nil)
 	w := httptest.NewRecorder()
 
 	ImageHandler(w, r)
