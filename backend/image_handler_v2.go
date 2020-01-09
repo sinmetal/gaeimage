@@ -57,31 +57,29 @@ func ImageHandlerV2(w http.ResponseWriter, r *http.Request) {
 	var img image.Image
 	var gt *goma.GomaType
 	attrs, err := gcs.Bucket(bucket).Object(object).Attrs(ctx)
-	if err != nil {
-		if resize && err == storage.ErrObjectNotExist {
-			img, gt, err = resizeToGCS(ctx, s, o)
-			if err != nil {
-				fmt.Printf("failed resizeToGCS bucket=%v,object=%v err=%+v\n", o.Bucket, o.Object, err)
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-
-			w.Header().Set("cache-control", "public, max-age=3600")
-			w.Header().Set("content-type", gt.ContentType)
-			w.WriteHeader(http.StatusOK)
-			if err := goma.Write(w, img, gt.FormatType); err != nil {
-				fmt.Printf("failed goma.Write to response. err=%+v\n", err)
-			}
-			return
-		} else if err == storage.ErrObjectNotExist {
-			fmt.Printf("404: bucket=%v,object=%v\n", bucket, object)
-			w.WriteHeader(http.StatusNotFound)
-			return
-		} else {
-			fmt.Printf("failed gcs.Attrs bucket=%v,object=%v err=%+v\n", o.Bucket, o.Object, err)
+	if resize && err == storage.ErrObjectNotExist {
+		img, gt, err = resizeToGCS(ctx, s, o)
+		if err != nil {
+			fmt.Printf("failed resizeToGCS bucket=%v,object=%v err=%+v\n", o.Bucket, o.Object, err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+
+		w.Header().Set("cache-control", "public, max-age=3600")
+		w.Header().Set("content-type", gt.ContentType)
+		w.WriteHeader(http.StatusOK)
+		if err := goma.Write(w, img, gt.FormatType); err != nil {
+			fmt.Printf("failed goma.Write to response. err=%+v\n", err)
+		}
+		return
+	} else if !resize && err == storage.ErrObjectNotExist {
+		fmt.Printf("404: bucket=%v,object=%v\n", bucket, object)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	} else if err != nil {
+		fmt.Printf("failed gcs.Attrs bucket=%v,object=%v err=%+v\n", o.Bucket, o.Object, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	or, err := gcs.Bucket(bucket).Object(object).NewReader(ctx)
