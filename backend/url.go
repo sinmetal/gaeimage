@@ -20,11 +20,11 @@ func BuildImageOption(path string) (*ImageOption, error) {
 	var found bool
 
 	blocks := strings.Split(path, "/")
-	if len(blocks) < 3 {
+	if len(blocks) < 4 {
 		return nil, ErrNotFound
 	}
-	ret.Bucket = blocks[1]
-	ret.Object = blocks[2]
+	ret.Bucket = blocks[2]
+	ret.Object = blocks[3]
 
 	r := regexp.MustCompile(`=s[\d]+`)
 
