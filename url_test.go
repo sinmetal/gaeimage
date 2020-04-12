@@ -1,4 +1,4 @@
-package backend
+package gaeimage
 
 import (
 	"testing"
@@ -35,7 +35,7 @@ func TestBuildImageOptionError(t *testing.T) {
 		url  string
 		want error
 	}{
-		{"not found", "/", ErrNotFound},
+		{"invalid argument", "/", ErrInvalidArgument},
 	}
 
 	for _, tt := range cases {

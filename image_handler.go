@@ -1,8 +1,9 @@
-package backend
+package gaeimage
 
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"cloud.google.com/go/storage"
 	"github.com/sinmetal/goma"
@@ -11,8 +12,17 @@ import (
 func ImageHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	o, err := BuildImageOption(r.URL.Path)
-	if err == ErrNotFound {
+	l := strings.Split(r.URL.Path, "/")
+	if len(l) < 4 {
+		w.WriteHeader(http.StatusBadRequest)
+		_, err := w.Write([]byte("invalid argument"))
+		if err != nil {
+			fmt.Printf("failed write to response. err%+v", err)
+		}
+	}
+
+	o, err := BuildImageOption(strings.Join(l[1:], "/"))
+	if err == ErrInvalidArgument {
 		fmt.Printf("404: %+v\n", err)
 		w.WriteHeader(http.StatusNotFound)
 		return

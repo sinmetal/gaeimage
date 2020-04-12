@@ -1,4 +1,4 @@
-package backend
+package gaeimage
 
 import (
 	"io/ioutil"
