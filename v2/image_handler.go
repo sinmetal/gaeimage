@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
-	"github.com/sinmetal/gaeimage"
 	"github.com/sinmetal/goma"
 	"github.com/vvakame/sdlog/aelog"
 )
@@ -23,16 +22,10 @@ func ImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	o, err := gaeimage.BuildImageOption(strings.Join(l[1:], "/"))
-	if err == gaeimage.ErrInvalidArgument {
+	o, err := BuildImageOption(strings.Join(l[1:], "/"))
+	if IsErrInvalidArgument(err) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, err := w.Write([]byte("invalid argument"))
-		if err != nil {
-			aelog.Errorf(ctx, "failed write to response. err%+v", err)
-		}
-		return
-	} else if err == gaeimage.ErrResizeArgument {
-		w.WriteHeader(http.StatusBadRequest)
 		if err != nil {
 			aelog.Errorf(ctx, "failed write to response. err%+v", err)
 		}
@@ -60,7 +53,7 @@ func ImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = is.ReadAndWrite(ctx, w, o)
-	if err == gaeimage.ErrNotFound {
+	if IsErrNotFound(err) {
 		aelog.Infof(ctx, "404: bucket=%v,object=%v,err=%+v", o.Bucket, o.Object, err)
 		w.WriteHeader(http.StatusNotFound)
 		return

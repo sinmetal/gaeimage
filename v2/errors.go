@@ -6,13 +6,21 @@ import (
 )
 
 func IsErrInvalidArgument(err error) bool {
-	return failure.Is(err, gaeimage.InvalidArgument)
+	return isError(err, gaeimage.InvalidArgument)
 }
 
 func IsErrNotFound(err error) bool {
-	return failure.Is(err, gaeimage.NotFound)
+	return isError(err, gaeimage.NotFound)
 }
 
 func IsErrInternalError(err error) bool {
-	return failure.Is(err, gaeimage.InternalError)
+	return isError(err, gaeimage.InternalError)
+}
+
+func isError(err error, code failure.StringCode) bool {
+	v, ok := failure.CodeOf(err)
+	if !ok {
+		return false
+	}
+	return v == code
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
+	"github.com/morikuni/failure"
 	"github.com/sinmetal/goma"
 )
 
@@ -22,7 +23,7 @@ func ImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	o, err := BuildImageOption(strings.Join(l[1:], "/"))
-	if err == ErrInvalidArgument {
+	if failure.Is(err, InvalidArgument) {
 		fmt.Printf("404: %+v\n", err)
 		w.WriteHeader(http.StatusNotFound)
 		return
