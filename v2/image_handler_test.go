@@ -1,12 +1,15 @@
-package v2
+package gaeimage_test
 
 import (
 	"fmt"
+
 	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	. "github.com/sinmetal/gaeimage/v2"
 )
 
 func TestImageHandlerV2_NoResize(t *testing.T) {

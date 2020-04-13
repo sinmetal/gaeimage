@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/morikuni/failure"
+	"github.com/sinmetal/gaeimage"
 )
 
 const MinResizeSize = 0
@@ -31,7 +31,7 @@ func BuildImageOption(path string) (*ImageOption, error) {
 
 	blocks := strings.Split(path, "/")
 	if len(blocks) < 3 {
-		return nil, failure.New(InvalidArgument, failure.Messagef("Fewer expected blocks separated by `/`"))
+		return nil, gaeimage.ErrInvalidArgument
 	}
 	ret.Bucket = blocks[1]
 	ret.Object = blocks[2]
@@ -50,11 +50,11 @@ func BuildImageOption(path string) (*ImageOption, error) {
 			return nil, err
 		}
 		if size < MinResizeSize || size > MaxResizeSize {
-			return nil, failure.New(InvalidArgument, failure.Messagef("invalid resize arugment. size range is %d ~ %d, but got %d", MinResizeSize, MaxResizeSize, size))
+			return nil, gaeimage.ErrResizeArgument
 		}
 		ret.Size = size
 		return &ret, nil
 	}
 
-	return nil, failure.New(InvalidArgument)
+	return nil, gaeimage.ErrInvalidArgument
 }
