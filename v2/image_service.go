@@ -39,9 +39,35 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 		object = s.ObjectOfAltered(o.Object, o.Size)
 	}
 
+	orgAttrs, err := s.gcs.Bucket(o.Bucket).Object(o.Object).Attrs(ctx)
+	if err == storage.ErrObjectNotExist {
+		return gaeimage.ErrNotFound // オリジナル画像がない場合はNotFoundを返す
+	} else if err != nil {
+		return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed storage.object.attrs() option=%+v, err=%+v", o, err))
+	}
+
+	if !resize {
+		or, err := s.gcs.Bucket(bucket).Object(object).NewReader(ctx)
+		if err != nil {
+			return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed storage.object.NewReader() option=%+v, err=%+v", o, err))
+		}
+		if o.CacheControlMaxAge > 0 {
+			w.Header().Set("cache-control", fmt.Sprintf("public, max-age=%d", o.CacheControlMaxAge))
+		}
+		w.Header().Set("last-modified", orgAttrs.Created.Format(http.TimeFormat))
+		w.Header().Set("content-length", fmt.Sprintf("%d", orgAttrs.Size))
+		w.Header().Set("content-type", orgAttrs.ContentType)
+		w.WriteHeader(http.StatusOK)
+		_, err = io.Copy(w, or)
+		if err != nil {
+			return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed gcs.object copy to response. err=%+v\n", err))
+		}
+		return nil
+	}
+
 	var img image.Image
 	var gt *goma.GomaType
-	attrs, err := s.gcs.Bucket(bucket).Object(object).Attrs(ctx)
+	_, err = s.gcs.Bucket(bucket).Object(object).Attrs(ctx)
 	if err == storage.ErrObjectNotExist {
 		if !resize {
 			return gaeimage.ErrNotFound
@@ -56,6 +82,8 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 			w.Header().Set("cache-control", fmt.Sprintf("public, max-age=%d", o.CacheControlMaxAge))
 		}
 
+		// file sizeが分からなかったので、content-length付けてないが、Google Frontendが付けてくれる
+		w.Header().Set("last-modified", orgAttrs.Created.Format(http.TimeFormat)) // last-modifiedはオリジナルの画像のものを返す
 		w.Header().Set("content-type", gt.ContentType)
 		w.WriteHeader(http.StatusOK)
 		if err := goma.Write(w, img, gt.FormatType); err != nil {
@@ -64,20 +92,6 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 		return nil
 	} else if err != nil {
 		return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed storage.object.attrs() option=%+v, err=%+v", o, err))
-	}
-
-	or, err := s.gcs.Bucket(bucket).Object(object).NewReader(ctx)
-	if err != nil {
-		return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed storage.object.NewReader() option=%+v, err=%+v", o, err))
-	}
-	if o.CacheControlMaxAge > 0 {
-		w.Header().Set("cache-control", fmt.Sprintf("public, max-age=%d", o.CacheControlMaxAge))
-	}
-	w.Header().Set("content-type", attrs.ContentType)
-	w.WriteHeader(http.StatusOK)
-	_, err = io.Copy(w, or)
-	if err != nil {
-		return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed gcs.object copy to response. err=%+v\n", err))
 	}
 	return nil
 }
