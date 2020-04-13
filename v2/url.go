@@ -1,17 +1,8 @@
 package gaeimage
 
 import (
-	"regexp"
-	"strconv"
-	"strings"
-
 	"github.com/sinmetal/gaeimage"
 )
-
-const MinResizeSize = 0
-const MaxResizeSize = 2560
-
-var sizeRegexp = regexp.MustCompile(`=s[\d]+`)
 
 type ImageOption struct {
 	Bucket             string
@@ -27,34 +18,14 @@ type ImageOption struct {
 // `/{bucket}/{object}`
 // `/{bucket}/{object}/=sXXX`
 func BuildImageOption(path string) (*ImageOption, error) {
-	var ret ImageOption
-
-	blocks := strings.Split(path, "/")
-	if len(blocks) < 3 {
-		return nil, gaeimage.ErrInvalidArgument
+	o, err := gaeimage.BuildImageOption(path)
+	if err != nil {
+		return nil, err
 	}
-	ret.Bucket = blocks[1]
-	ret.Object = blocks[2]
-
-	// resize 指定がない場合は、そこで終わり
-	if len(blocks) < 4 {
-		return &ret, nil
-	}
-
-	l := sizeRegexp.FindAllStringSubmatch(path, -1)
-	if len(l) > 0 {
-		v := l[len(l)-1]
-		vv := v[0]
-		size, err := strconv.Atoi(vv[2:])
-		if err != nil {
-			return nil, err
-		}
-		if size < MinResizeSize || size > MaxResizeSize {
-			return nil, gaeimage.ErrResizeArgument
-		}
-		ret.Size = size
-		return &ret, nil
-	}
-
-	return nil, gaeimage.ErrInvalidArgument
+	return &ImageOption{
+		Bucket:             o.Bucket,
+		Object:             o.Object,
+		Size:               o.Size,
+		CacheControlMaxAge: o.CacheControlMaxAge,
+	}, nil
 }

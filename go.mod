@@ -18,7 +18,7 @@ require (
 	github.com/jstemmer/go-junit-report v0.9.1 // indirect
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/kr/pty v1.1.8 // indirect
-	github.com/morikuni/failure v0.12.1 // indirect
+	github.com/morikuni/failure v0.12.1
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_model v0.1.0 // indirect
 	github.com/rogpeppe/go-internal v1.5.1 // indirect

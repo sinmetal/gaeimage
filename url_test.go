@@ -1,6 +1,7 @@
 package gaeimage
 
 import (
+	"github.com/morikuni/failure"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -33,9 +34,9 @@ func TestBuildImageOptionError(t *testing.T) {
 	cases := []struct {
 		name string
 		url  string
-		want error
+		want failure.StringCode
 	}{
-		{"invalid argument", "/", ErrInvalidArgument},
+		{"invalid argument", "/", InvalidArgument},
 	}
 
 	for _, tt := range cases {
@@ -45,8 +46,12 @@ func TestBuildImageOptionError(t *testing.T) {
 			if err == nil {
 				t.Errorf("not error")
 			}
-			if err != tt.want {
-				t.Errorf("want %+v but got %+v", tt.want, err)
+			code, ok := failure.CodeOf(err)
+			if !ok {
+				t.Errorf("want %+v but got nothing code. err=%+v", tt.want, err)
+			}
+			if e, g := tt.want, code; e != g {
+				t.Errorf("want %+v but got %+v", e, g)
 			}
 		})
 	}
