@@ -1,4 +1,4 @@
-package v2
+package gaeimage
 
 import (
 	"context"
@@ -6,9 +6,10 @@ import (
 	"image"
 	"io"
 	"net/http"
+	"strconv"
 
 	"cloud.google.com/go/storage"
-	"github.com/pkg/errors"
+	"github.com/morikuni/failure"
 	"github.com/sinmetal/gaeimage"
 	"github.com/sinmetal/goma"
 	"github.com/vvakame/sdlog/aelog"
@@ -29,7 +30,7 @@ func NewImageService(ctx context.Context, gcs *storage.Client, goma *goma.Storag
 // ReadAndWrite is Cloud Storage から読み込んだImageをhttp.ResponseWriterに書き込む
 // gaeimage.ImageOptionにより画像の変換が求められている場合、変換後Object保存用Bucketを参照し、すでにあればそれを書き込む
 // 変換後Object保存用Bucketに変換されたObjectがない場合、変換したImageを作成し、変換後Object保存用Bucketに保存して、それを書き込む
-func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, o *gaeimage.ImageOption) error {
+func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, o *ImageOption) error {
 	var bucket = o.Bucket
 	var object = o.Object
 	var resize bool
@@ -41,15 +42,25 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 
 	orgAttrs, err := s.gcs.Bucket(o.Bucket).Object(o.Object).Attrs(ctx)
 	if err == storage.ErrObjectNotExist {
-		return gaeimage.ErrNotFound // オリジナル画像がない場合はNotFoundを返す
+		return failure.New(gaeimage.NotFound) // オリジナル画像がない場合はNotFoundを返す
 	} else if err != nil {
-		return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed storage.object.attrs() option=%+v, err=%+v", o, err))
+		return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
+			failure.Messagef("failed storage.object.attrs"),
+			failure.Context{
+				"bucket": o.Bucket,
+				"object": o.Object,
+			})
 	}
 
 	if !resize {
 		or, err := s.gcs.Bucket(bucket).Object(object).NewReader(ctx)
 		if err != nil {
-			return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed storage.object.NewReader() option=%+v, err=%+v", o, err))
+			return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
+				failure.Messagef("failed storage.object.NewReader"),
+				failure.Context{
+					"bucket": o.Bucket,
+					"object": o.Object,
+				})
 		}
 		if o.CacheControlMaxAge > 0 {
 			w.Header().Set("cache-control", fmt.Sprintf("public, max-age=%d", o.CacheControlMaxAge))
@@ -60,7 +71,12 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 		w.WriteHeader(http.StatusOK)
 		_, err = io.Copy(w, or)
 		if err != nil {
-			return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed gcs.object copy to response. err=%+v\n", err))
+			return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
+				failure.Messagef("failed write to response"),
+				failure.Context{
+					"bucket": o.Bucket,
+					"object": o.Object,
+				})
 		}
 		return nil
 	}
@@ -70,12 +86,21 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 	_, err = s.gcs.Bucket(bucket).Object(object).Attrs(ctx)
 	if err == storage.ErrObjectNotExist {
 		if !resize {
-			return gaeimage.ErrNotFound
+			return failure.New(gaeimage.NotFound, failure.Context{
+				"bucket": o.Bucket,
+				"object": o.Object,
+			})
 		}
 
 		img, gt, err = s.ResizeToGCS(ctx, o)
 		if err != nil {
-			return errors.Wrap(gaeimage.ErrCreateCacheImage, fmt.Sprintf("failed ResizeToGCS() option=%+v, err=%+v", o, err))
+			return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
+				failure.Messagef("failed ResizeToGCS"),
+				failure.Context{
+					"bucket": o.Bucket,
+					"object": o.Object,
+					"size":   strconv.Itoa(o.Size),
+				})
 		}
 
 		if o.CacheControlMaxAge > 0 {
@@ -91,13 +116,19 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 		}
 		return nil
 	} else if err != nil {
-		return errors.Wrap(gaeimage.ErrInternalError, fmt.Sprintf("failed storage.object.attrs() option=%+v, err=%+v", o, err))
+		return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
+			failure.Messagef("failed storage.object.attrs"),
+			failure.Context{
+				"bucket": o.Bucket,
+				"object": o.Object,
+				"size":   strconv.Itoa(o.Size),
+			})
 	}
 	return nil
 }
 
 // ResizeToGCS is 画像をリサイズしてCloud Storageに保存する
-func (s *ImageService) ResizeToGCS(ctx context.Context, o *gaeimage.ImageOption) (image.Image, *goma.GomaType, error) {
+func (s *ImageService) ResizeToGCS(ctx context.Context, o *ImageOption) (image.Image, *goma.GomaType, error) {
 	img, gt, err := s.goma.Read(ctx, o.Bucket, o.Object)
 	if err != nil {
 		return nil, nil, err
