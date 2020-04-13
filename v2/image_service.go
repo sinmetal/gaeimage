@@ -56,6 +56,8 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 			w.Header().Set("cache-control", fmt.Sprintf("public, max-age=%d", o.CacheControlMaxAge))
 		}
 
+		// file sizeが分からなかったので、content-length付けてないが、Google Frontendが付けてくれる
+		w.Header().Set("last-modified", attrs.Created.Format(http.TimeFormat))
 		w.Header().Set("content-type", gt.ContentType)
 		w.WriteHeader(http.StatusOK)
 		if err := goma.Write(w, img, gt.FormatType); err != nil {
@@ -73,6 +75,8 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 	if o.CacheControlMaxAge > 0 {
 		w.Header().Set("cache-control", fmt.Sprintf("public, max-age=%d", o.CacheControlMaxAge))
 	}
+	w.Header().Set("last-modified", attrs.Created.Format(http.TimeFormat))
+	w.Header().Set("content-length", fmt.Sprintf("%d", attrs.Size))
 	w.Header().Set("content-type", attrs.ContentType)
 	w.WriteHeader(http.StatusOK)
 	_, err = io.Copy(w, or)
