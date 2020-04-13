@@ -15,16 +15,40 @@ import (
 	"github.com/vvakame/sdlog/aelog"
 )
 
-type ImageService struct {
-	gcs  *storage.Client
-	goma *goma.StorageService
+type serviceOptions struct {
+	alterBucket string
 }
 
-func NewImageService(ctx context.Context, gcs *storage.Client, goma *goma.StorageService) (*ImageService, error) {
-	return &ImageService{
+type ServiceOption func(*serviceOptions)
+
+// WithAlterBucket is 変換後の画像を保存するBucketを任意の固定したBucketに設定する時に利用する
+// 未指定の場合の default の命名規則は `alter-{original-bucket}`
+func WithAlterBucket(alterBucket string) ServiceOption {
+	return func(ops *serviceOptions) {
+		ops.alterBucket = alterBucket
+	}
+}
+
+type ImageService struct {
+	alterBucket string
+	gcs         *storage.Client
+	goma        *goma.StorageService
+}
+
+func NewImageService(ctx context.Context, gcs *storage.Client, goma *goma.StorageService, options ...ServiceOption) (*ImageService, error) {
+	s := &ImageService{
 		gcs:  gcs,
 		goma: goma,
-	}, nil
+	}
+
+	opt := serviceOptions{}
+	for _, o := range options {
+		o(&opt)
+	}
+
+	s.alterBucket = opt.alterBucket
+
+	return s, nil
 }
 
 // ReadAndWrite is Cloud Storage から読み込んだImageをhttp.ResponseWriterに書き込む
@@ -142,6 +166,9 @@ func (s *ImageService) ResizeToGCS(ctx context.Context, o *ImageOption) (image.I
 
 // BucketOfAlteredObject is 変換後Objectを保存するBucket
 func (s *ImageService) BucketOfAlteredObject(bucket string) string {
+	if s.alterBucket != "" {
+		return s.alterBucket
+	}
 	return fmt.Sprintf("alter-%s", bucket)
 }
 
