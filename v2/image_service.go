@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/morikuni/failure"
@@ -64,7 +65,7 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 		object = s.ObjectOfAltered(o.Object, o.Size)
 	}
 
-	orgAttrs, err := s.gcs.Bucket(o.Bucket).Object(o.Object).Attrs(ctx)
+	objAttrs, err := s.gcs.Bucket(o.Bucket).Object(o.Object).Attrs(ctx)
 	if err == storage.ErrObjectNotExist {
 		return failure.New(gaeimage.NotFound) // オリジナル画像がない場合はNotFoundを返す
 	} else if err != nil {
@@ -76,46 +77,12 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 			})
 	}
 
-	if !resize {
-		or, err := s.gcs.Bucket(bucket).Object(object).NewReader(ctx)
-		if err != nil {
-			return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
-				failure.Messagef("failed storage.object.NewReader"),
-				failure.Context{
-					"bucket": o.Bucket,
-					"object": o.Object,
-				})
-		}
-		if o.CacheControlMaxAge > 0 {
-			w.Header().Set("cache-control", fmt.Sprintf("public, max-age=%d", o.CacheControlMaxAge))
-		}
-		w.Header().Set("last-modified", orgAttrs.Created.Format(http.TimeFormat))
-		w.Header().Set("content-length", fmt.Sprintf("%d", orgAttrs.Size))
-		w.Header().Set("content-type", orgAttrs.ContentType)
-		w.WriteHeader(http.StatusOK)
-		_, err = io.Copy(w, or)
-		if err != nil {
-			return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
-				failure.Messagef("failed write to response"),
-				failure.Context{
-					"bucket": o.Bucket,
-					"object": o.Object,
-				})
-		}
-		return nil
-	}
-
 	var img image.Image
 	var gt *goma.GomaType
-	_, err = s.gcs.Bucket(bucket).Object(object).Attrs(ctx)
+	if resize {
+		objAttrs, err = s.gcs.Bucket(bucket).Object(object).Attrs(ctx)
+	}
 	if err == storage.ErrObjectNotExist {
-		if !resize {
-			return failure.New(gaeimage.NotFound, failure.Context{
-				"bucket": o.Bucket,
-				"object": o.Object,
-			})
-		}
-
 		img, gt, err = s.ResizeToGCS(ctx, o)
 		if err != nil {
 			return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
@@ -127,17 +94,20 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 				})
 		}
 
-		if o.CacheControlMaxAge > 0 {
-			w.Header().Set("cache-control", fmt.Sprintf("public, max-age=%d", o.CacheControlMaxAge))
+		// file sizeが分からなかったので、content-length付けてないが、Google Frontendが付けてくれる
+		err = s.writeHeaders(ctx, w, &imageHeaders{
+			CacheControlMaxAge: o.CacheControlMaxAge,
+			LastModified:       objAttrs.Created,
+			ContentType:        gt.ContentType,
+		})
+		if err != nil {
+			return err
 		}
 
-		// file sizeが分からなかったので、content-length付けてないが、Google Frontendが付けてくれる
-		w.Header().Set("last-modified", orgAttrs.Created.Format(http.TimeFormat)) // last-modifiedはオリジナルの画像のものを返す
-		w.Header().Set("content-type", gt.ContentType)
-		w.WriteHeader(http.StatusOK)
 		if err := goma.Write(w, img, gt.FormatType); err != nil {
-			aelog.Errorf(ctx, "failed goma.Write to response. err=%+v\n", err)
+			aelog.Errorf(ctx, "failed goma.Write to response. err=%s", err)
 		}
+
 		return nil
 	} else if err != nil {
 		return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
@@ -148,6 +118,71 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 				"size":   strconv.Itoa(o.Size),
 			})
 	}
+
+	return s.writeResponse(ctx, w, bucket, object, &imageHeaders{
+		CacheControlMaxAge: o.CacheControlMaxAge,
+		LastModified:       objAttrs.Created,
+		ContentLength:      objAttrs.Size,
+		ContentType:        objAttrs.ContentType,
+	})
+}
+
+type imageHeaders struct {
+	CacheControlMaxAge int
+	LastModified       time.Time
+	ContentLength      int64
+	ContentType        string
+}
+
+func (s *ImageService) writeHeaders(ctx context.Context, w http.ResponseWriter, hs *imageHeaders) error {
+	setHeaderIfEmpty := func(key, value string) {
+		if w.Header().Get(key) == "" {
+			w.Header().Set(key, value)
+		}
+	}
+
+	if v := hs.CacheControlMaxAge; v > 0 {
+		setHeaderIfEmpty("cache-control", fmt.Sprintf("public, max-age=%d", v))
+	}
+	if v := hs.LastModified; !v.IsZero() {
+		setHeaderIfEmpty("last-modified", v.Format(http.TimeFormat))
+	}
+	if v := hs.ContentLength; v != 0 {
+		setHeaderIfEmpty("content-length", fmt.Sprintf("%d", v))
+	}
+	if v := hs.ContentType; v != "" {
+		setHeaderIfEmpty("content-type", v)
+	}
+
+	return nil
+}
+
+func (s *ImageService) writeResponse(ctx context.Context, w http.ResponseWriter, bucket, object string, hs *imageHeaders) error {
+	or, err := s.gcs.Bucket(bucket).Object(object).NewReader(ctx)
+	if err != nil {
+		return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
+			failure.Messagef("failed storage.object.NewReader"),
+			failure.Context{
+				"bucket": bucket,
+				"object": object,
+			})
+	}
+
+	err = s.writeHeaders(ctx, w, hs)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(w, or)
+	if err != nil {
+		return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
+			failure.Messagef("failed write to response"),
+			failure.Context{
+				"bucket": bucket,
+				"object": object,
+			})
+	}
+
 	return nil
 }
 
