@@ -56,15 +56,6 @@ func NewImageService(ctx context.Context, gcs *storage.Client, goma *goma.Storag
 // gaeimage.ImageOptionにより画像の変換が求められている場合、変換後Object保存用Bucketを参照し、すでにあればそれを書き込む
 // 変換後Object保存用Bucketに変換されたObjectがない場合、変換したImageを作成し、変換後Object保存用Bucketに保存して、それを書き込む
 func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, o *ImageOption) error {
-	var bucket = o.Bucket
-	var object = o.Object
-	var resize bool
-	if o.Size > 0 {
-		resize = true
-		bucket = s.BucketOfAlteredObject(o.Bucket)
-		object = s.ObjectOfAltered(o.Object, o.Size)
-	}
-
 	objAttrs, err := s.gcs.Bucket(o.Bucket).Object(o.Object).Attrs(ctx)
 	if err == storage.ErrObjectNotExist {
 		return failure.New(gaeimage.NotFound) // オリジナル画像がない場合はNotFoundを返す
@@ -77,46 +68,49 @@ func (s *ImageService) ReadAndWrite(ctx context.Context, w http.ResponseWriter, 
 			})
 	}
 
-	var img image.Image
-	var gt *goma.GomaType
-	if resize {
+	bucket := o.Bucket
+	object := o.Object
+	if o.Size > 0 {
+		bucket = s.BucketOfAlteredObject(bucket)
+		object = s.ObjectOfAltered(object, o.Size)
 		objAttrs, err = s.gcs.Bucket(bucket).Object(object).Attrs(ctx)
-	}
-	if err == storage.ErrObjectNotExist {
-		img, gt, err = s.ResizeToGCS(ctx, o)
-		if err != nil {
+		if err == storage.ErrObjectNotExist {
+			img, gt, err := s.ResizeToGCS(ctx, o)
+			if err != nil {
+				return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
+					failure.Messagef("failed ResizeToGCS"),
+					failure.Context{
+						"bucket": o.Bucket,
+						"object": o.Object,
+						"size":   strconv.Itoa(o.Size),
+					})
+			}
+
+			// file sizeが分からなかったので、content-length付けてないが、Google Frontendが付けてくれる
+			err = s.writeHeaders(ctx, w, &imageHeaders{
+				CacheControlMaxAge: o.CacheControlMaxAge,
+				LastModified:       time.Now().Truncate(1 * time.Second),
+				ContentType:        gt.ContentType,
+			})
+			if err != nil {
+				return err
+			}
+
+			if err := goma.Write(w, img, gt.FormatType); err != nil {
+				aelog.Errorf(ctx, "failed goma.Write to response. err=%s", err)
+				return err
+			}
+
+			return nil
+		} else if err != nil {
 			return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
-				failure.Messagef("failed ResizeToGCS"),
+				failure.Messagef("failed storage.object.attrs"),
 				failure.Context{
 					"bucket": o.Bucket,
 					"object": o.Object,
 					"size":   strconv.Itoa(o.Size),
 				})
 		}
-
-		// file sizeが分からなかったので、content-length付けてないが、Google Frontendが付けてくれる
-		err = s.writeHeaders(ctx, w, &imageHeaders{
-			CacheControlMaxAge: o.CacheControlMaxAge,
-			LastModified:       objAttrs.Created,
-			ContentType:        gt.ContentType,
-		})
-		if err != nil {
-			return err
-		}
-
-		if err := goma.Write(w, img, gt.FormatType); err != nil {
-			aelog.Errorf(ctx, "failed goma.Write to response. err=%s", err)
-		}
-
-		return nil
-	} else if err != nil {
-		return failure.Wrap(err, failure.WithCode(gaeimage.InternalError),
-			failure.Messagef("failed storage.object.attrs"),
-			failure.Context{
-				"bucket": o.Bucket,
-				"object": o.Object,
-				"size":   strconv.Itoa(o.Size),
-			})
 	}
 
 	return s.writeResponse(ctx, w, bucket, object, &imageHeaders{
